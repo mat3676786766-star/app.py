@@ -5,10 +5,10 @@ import time
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 
 # Sayfa Yapılandırması
-st.set_page_config(page_title="AI Safety Matrix Pro", layout="wide")
+st.set_page_config(page_title="AI Safety Matrix Pro v4", layout="wide")
 
-st.title("🛡️ AI SAFETY MATRIX - LIVE STREAM INTEGRATION")
-st.caption("Tüm Telemetri Verileri, Geri Sayım Sayacı ve Durum Kilitleri Doğrudan Video Akışına Gömülmüştür.")
+st.title("🛡️ AI SAFETY MATRIX - 3 SECOND LIMIT")
+st.caption("3 Saniyelik Hareket Hassasiyeti ve Doğrudan Video Akışına Gömülü HUD Paneli")
 
 # --- WEBRTC GÖMÜLÜ İŞLEMCİ SINIFI ---
 class ProctorProcessor(VideoProcessorBase):
@@ -68,8 +68,8 @@ class ProctorProcessor(VideoProcessorBase):
             # Değişim kutusunu ekrana çiz
             cv2.rectangle(kare, (x, y), (x + w_box, y + h_box), (255, 255, 255), 1)
 
-        # 2. GELİŞMİŞ DURUM MAKİNESİ VE 5 SANİYE GERİ SAYIM MANTIĞI
-        kalan_sure = 5.0
+        # 2. GELİŞMİŞ DURUM MAKİNESİ VE 3 SANİYE GERİ SAYIM MANTIĞI
+        kalan_sure = 3.0  # Başlangıç limiti 3 saniyeye çekildi
         if self.durum != "KOPYA ÇEKİYOR":
             if hareket_var:
                 if self.durum == "SAFE":
@@ -77,11 +77,11 @@ class ProctorProcessor(VideoProcessorBase):
                     self.suspicious_start = time.time()
                 elif self.durum == "KOPYA İHTİMALİ VAR":
                     gecen_sure = time.time() - self.suspicious_start
-                    kalan_sure = max(0.0, 5.0 - gecen_sure)
-                    if gecen_sure > 5.0:
+                    kalan_sure = max(0.0, 3.0 - gecen_sure)  # 3 saniyeden geriye sayım
+                    if gecen_sure > 3.0:  # 3 saniye aşılırsa kilitlen
                         self.durum = "KOPYA ÇEKİYOR"
             else:
-                # 5 saniye dolmadan hareket durursa sistemi affet ve SAFE moduna çek
+                # 3 saniye dolmadan hareket durursa sistemi affet ve SAFE moduna çek
                 if self.durum == "KOPYA İHTİMALİ VAR":
                     self.durum = "SAFE"
                     self.suspicious_start = None
@@ -95,19 +95,19 @@ class ProctorProcessor(VideoProcessorBase):
             renk = (0, 0, 255)      # Kırmızı
 
         # 3. VİDEO ÜZERİNE TELEMETRİ PANELİ (HUD ARYÜZÜ) ÇİZİMİ
-        # Verilerin okunabilir olması için sol üste siyah panel şeridi ekliyoruz
+        # Bilgi panelinin arka planı
         cv2.rectangle(kare, (10, 10), (380, 135), (0, 0, 0), -1)
         
-        # Yazıları canlı olarak kare üzerine basıyoruz (Asla donmaz)
+        # Yazıları canlı olarak kare üzerine basıyoruz
         cv2.putText(kare, f"DURUM: {self.durum}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, renk, 2)
         cv2.putText(kare, f"Yaw (Yatay) : {yaw:.2f} deg", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         cv2.putText(kare, f"Pitch (Dikey): {pitch:.2f} deg", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-        # Sarı moddayken ekranda saniye saniye geri sayım gösterir
+        # Sarı moddayken ekranda 3 saniyeden düşen canlı sayacı gösterir
         if self.durum == "KOPYA İHTİMALİ VAR":
             cv2.putText(kare, f"KILITLENMEYE: {kalan_sure:.1f}s", (20, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 140, 255), 2)
         
-        # Kırmızı moda girdiğinde tüm ekranı kırmızı çerçeveye alıp kilitler
+        # Kırmızı moda girdiğinde tüm ekranı kalın kırmızı çerçeveye alır
         if self.durum == "KOPYA ÇEKİYOR":
             cv2.rectangle(kare, (0, 0), (w, h), (0, 0, 255), 12)
             cv2.putText(kare, "SISTEM KILITLENDI!", (w // 2 - 160, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 3)
@@ -116,7 +116,7 @@ class ProctorProcessor(VideoProcessorBase):
 
 # --- TARAYICI TABANLI DOĞRUDAN BAĞLANTI SİHİRBAZI ---
 webrtc_streamer(
-    key="fixed_matrix_stream",
+    key="fixed_matrix_stream_v4",
     mode=WebRtcMode.SENDRECV,
     video_processor_factory=ProctorProcessor,
     rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
