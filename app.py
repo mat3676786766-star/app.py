@@ -2,124 +2,206 @@ import streamlit as st
 import cv2
 import numpy as np
 import time
+import os
+import pandas as pd
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
+import mediapipe as mp
 
 # Sayfa Yapılandırması
-st.set_page_config(page_title="AI Safety Matrix Pro v4", layout="wide")
+st.set_page_config(page_title="AI Proctoring Smooth", layout="wide")
 
-st.title("🛡️ AI SAFETY MATRIX - 3 SECOND LIMIT")
-st.caption("3 Saniyelik Hareket Hassasiyeti ve Doğrudan Video Akışına Gömülü HUD Paneli")
+st.title("🛡️ AKILLI SINAV GÜVENLİK SİSTEMİ (PERFORMANS MODU)")
+st.caption("3 Saniye Başlangıç Sayacı, Arka Plan Telemetri Kaydı ve Sınav Sonu Raporlama")
 
-# --- WEBRTC GÖMÜLÜ İŞLEMCİ SINIFI ---
-class ProctorProcessor(VideoProcessorBase):
+# Klasör kontrolü
+if not os.path.exists("kopya_kanitlari"):
+    os.makedirs("kopya_kanitlari")
+
+# Raporlama için session state hafızası
+if "final_rapor_verisi" not in st.session_state:
+    st.session_state.final_rapor_verisi = []
+if "sinav_bitti" not in st.session_state:
+    st.session_state.sinav_bitti = False
+
+# --- YAPAY ZEKA İŞLEMCİ SINIFI ---
+mp_face_mesh = mp.solutions.face_mesh
+
+class SmoothProctorProcessor(VideoProcessorBase):
     def __init__(self):
-        self.durum = "SAFE"
-        self.suspicious_start = None
+        self.face_mesh = mp_face_mesh.FaceMesh(
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.6,
+            min_tracking_confidence=0.6
+        )
+        self.durum = "BAŞLATILIYOR..."
+        self.violation_score = 0.0
         self.last_yaw = 0.0
         self.last_pitch = 0.0
-        self.prev_frame = None  # Hareket takibi için önceki kare hafızası
+        self.snapshot_saved = False
+        self.init_time = time.time()
+        
+        # CPU'yu yormayan dahili veri geçmişi hafızası
+        self.history = []
 
     def recv(self, frame):
         kare = frame.to_ndarray(format="bgr24")
-        kare = cv2.flip(kare, 1)  # Aynalama efekti
+        kare = cv2.flip(kare, 1)
         h, w, _ = kare.shape
-        cx_ekran, cy_ekran = w // 2, h // 2
 
-        # 1. ARKA PLAN HAREKET ANALİZİ (Işıktan Bağımsız Diferansiyel)
-        gray = cv2.cvtColor(kare, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (21, 21), 0)
+        # Hazırlık sayacı hesabı
+        gecen_hazirlik_suresi = time.time() - self.init_time
+        kalan_hazirlik = max(0.0, 3.0 - gecen_hazirlik_suresi)
 
-        if self.prev_frame is None:
-            self.prev_frame = gray
-            return frame.from_ndarray(kare, format="bgr24")
+        rgb_kare = cv2.cvtColor(kare, cv2.COLOR_BGR2RGB)
+        sonuclar = self.face_mesh.process(rgb_kare)
 
-        # İki kare arasındaki farkı bul (Garantili hareket tespiti)
-        frame_delta = cv2.absdiff(self.prev_frame, gray)
-        thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
-        thresh = cv2.dilate(thresh, None, iterations=2)
-        konturlar, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        ihlal_var = False
+        yaw, pitch = 0.0, 0.0
 
-        self.prev_frame = gray  # Kareyi güncelle
+        if sonuclar.multi_face_landmarks:
+            yuz_noktalari = sonuclar.multi_face_landmarks[0].landmark
 
-        hareket_var = False
-        yaw, pitch = self.last_yaw, self.last_pitch
+            burun = np.array([yuz_noktalari[1].x * w, yuz_noktalari[1].y * h])
+            sol_goz = np.array([yuz_noktalari[33].x * w, yuz_noktalari[33].y * h])
+            sag_goz = np.array([yuz_noktalari[263].x * w, yuz_noktalari[263].y * h])
+            alin = np.array([yuz_noktalari[10].x * w, yuz_noktalari[10].y * h])
+            cene = np.array([yuz_noktalari[152].x * w, yuz_noktalari[152].y * h])
 
-        en_buyuk_kontur = None
-        maks_alan = 0
-        for kontur in konturlar:
-            alan = cv2.contourArea(kontur)
-            if alan > 3000 and alan > maks_alan:  # Hareket hassasiyet eşiği
-                maks_alan = alan
-                en_buyuk_kontur = kontur
+            # Açı Oranlamaları
+            sol_mesafe = np.linalg.norm(burun - sol_goz)
+            sag_mesafe = np.linalg.norm(burun - sag_goz)
+            yaw = float((sol_mesafe / (sag_mesafe + 1e-6) - 1.0) * 100.0)
 
-        if en_buyuk_kontur is not None:
-            x, y, w_box, h_box = cv2.boundingRect(en_buyuk_kontur)
-            cx_hareket = x + w_box // 2
-            cy_hareket = y + h_box // 2
-
-            # Merkeze olan uzaklığa göre dinamik eksen hesaplama
-            yaw = float(((cx_hareket - cx_ekran) / cx_ekran) * 45.0)
-            pitch = float(((cy_ekran - cy_hareket) / cy_ekran) * 35.0)
-            hareket_var = True
+            ust_mesafe = np.linalg.norm(burun - alin)
+            alt_mesafe = np.linalg.norm(burun - cene)
+            pitch = float((ust_mesafe / (alt_mesafe + 1e-6) - 1.2) * 100.0)
 
             self.last_yaw = yaw
             self.last_pitch = pitch
-            
-            # Değişim kutusunu ekrana çiz
-            cv2.rectangle(kare, (x, y), (x + w_box, y + h_box), (255, 255, 255), 1)
 
-        # 2. GELİŞMİŞ DURUM MAKİNESİ VE 3 SANİYE GERİ SAYIM MANTIĞI
-        kalan_sure = 3.0  # Başlangıç limiti 3 saniyeye çekildi
-        if self.durum != "KOPYA ÇEKİYOR":
-            if hareket_var:
-                if self.durum == "SAFE":
-                    self.durum = "KOPYA İHTİMALİ VAR"
-                    self.suspicious_start = time.time()
-                elif self.durum == "KOPYA İHTİMALİ VAR":
-                    gecen_sure = time.time() - self.suspicious_start
-                    kalan_sure = max(0.0, 3.0 - gecen_sure)  # 3 saniyeden geriye sayım
-                    if gecen_sure > 3.0:  # 3 saniye aşılırsa kilitlen
-                        self.durum = "KOPYA ÇEKİYOR"
-            else:
-                # 3 saniye dolmadan hareket durursa sistemi affet ve SAFE moduna çek
-                if self.durum == "KOPYA İHTİMALİ VAR":
-                    self.durum = "SAFE"
-                    self.suspicious_start = None
+            if abs(yaw) > 25.0 or abs(pitch) > 20.0:
+                ihlal_var = True
 
-        # Renk Yönetimi
-        if self.durum == "SAFE":
-            renk = (0, 255, 0)      # Yeşil
-        elif self.durum == "KOPYA İHTİMALİ VAR":
-            renk = (0, 255, 255)    # Sarı
+            if kalan_hazirlik == 0:
+                cv2.line(kare, tuple(sol_goz.astype(int)), tuple(sag_goz.astype(int)), (255, 255, 0), 1)
+                cv2.line(kare, tuple(alin.astype(int)), tuple(cene.astype(int)), (255, 255, 0), 1)
+                cv2.circle(kare, tuple(burun.astype(int)), 4, (0, 255, 255), -1)
         else:
-            renk = (0, 0, 255)      # Kırmızı
+            if kalan_hazirlik == 0:
+                ihlal_var = True
 
-        # 3. VİDEO ÜZERİNE TELEMETRİ PANELİ (HUD ARYÜZÜ) ÇİZİMİ
-        # Bilgi panelinin arka planı
-        cv2.rectangle(kare, (10, 10), (380, 135), (0, 0, 0), -1)
-        
-        # Yazıları canlı olarak kare üzerine basıyoruz
-        cv2.putText(kare, f"DURUM: {self.durum}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, renk, 2)
-        cv2.putText(kare, f"Yaw (Yatay) : {yaw:.2f} deg", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        cv2.putText(kare, f"Pitch (Dikey): {pitch:.2f} deg", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        # --- DURUM MAKİNESİ SÜREÇLERİ ---
+        if kalan_hazirlik > 0:
+            self.durum = f"HAZIRLANIN ({kalan_hazirlik:.1f}s)"
+            renk = (255, 140, 0)
+        else:
+            if self.durum.startswith("HAZIRLANIN"):
+                self.durum = "SAFE (GÜVENLİ)"
 
-        # Sarı moddayken ekranda 3 saniyeden düşen canlı sayacı gösterir
-        if self.durum == "KOPYA İHTİMALİ VAR":
-            cv2.putText(kare, f"KILITLENMEYE: {kalan_sure:.1f}s", (20, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 140, 255), 2)
+            if self.durum != "SISTEM KILITLENDI":
+                if ihlal_var:
+                    self.durum = "UYARI: SÜPHELİ HAREKET"
+                    self.violation_score = min(100.0, self.violation_score + 3.0)
+                    if self.violation_score >= 100.0:
+                        self.durum = "SISTEM KILITLENDI"
+                else:
+                    self.violation_score = max(0.0, self.violation_score - 1.0)
+                    if self.violation_score == 0.0:
+                        self.durum = "SAFE (GÜVENLİ)"
+
+            if self.durum.startswith("SAFE"):
+                renk = (0, 255, 0)
+            elif self.durum.startswith("UYARI"):
+                renk = (0, 255, 255)
+            else:
+                renk = (0, 0, 255)
+
+        # Veriyi arka plan listesine sessizce kaydet (Kasmayı önleyen sihirli kısım)
+        self.history.append({
+            "Saniye": len(self.history) * 0.03, # Yaklaşık kare zamanı
+            "Sağa/Sola Sapma (Yaw)": self.last_yaw,
+            "Yukarı/Aşağı Sapma (Pitch)": self.last_pitch,
+            "Anlık Risk Skoru": self.violation_score
+        })
+
+        # HUD PANEL METİNLERİ
+        cv2.rectangle(kare, (10, 10), (420, 140), (0, 0, 0), -1)
+        cv2.putText(kare, f"DURUM: {self.durum}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, renk, 2)
+        cv2.putText(kare, f"Yaw (Sag/Sol)  : {self.last_yaw:.1f}", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        cv2.putText(kare, f"Pitch (Ust/Alt) : {self.last_pitch:.1f}", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         
-        # Kırmızı moda girdiğinde tüm ekranı kalın kırmızı çerçeveye alır
-        if self.durum == "KOPYA ÇEKİYOR":
-            cv2.rectangle(kare, (0, 0), (w, h), (0, 0, 255), 12)
-            cv2.putText(kare, "SISTEM KILITLENDI!", (w // 2 - 160, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 3)
+        # İlerleme Çubuğu
+        cv2.rectangle(kare, (20, 115), (400, 125), (50, 50, 50), -1)
+        cv2.rectangle(kare, (20, 115), (20 + int(self.violation_score * 3.8), 125), renk, -1)
+
+        # Otomatik Fotoğraf Mühürleme
+        if self.durum == "SISTEM KILITLENDI" and not self.snapshot_saved:
+            cv2.imwrite(f"kopya_kanitlari/ihlal_{int(time.time())}.jpg", kare)
+            self.snapshot_saved = True
+
+        if self.durum == "SISTEM KILITLENDI":
+            cv2.rectangle(kare, (0, 0), (w, h), (0, 0, 255), 15)
+            cv2.putText(kare, "KOPYA TESPITI: SINAV IPTAL!", (w // 2 - 220, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 3)
 
         return frame.from_ndarray(kare, format="bgr24")
 
-# --- TARAYICI TABANLI DOĞRUDAN BAĞLANTI SİHİRBAZI ---
-webrtc_streamer(
-    key="fixed_matrix_stream_v4",
-    mode=WebRtcMode.SENDRECV,
-    video_processor_factory=ProctorProcessor,
-    rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-    media_stream_constraints={"video": True, "audio": False},
-    async_processing=True
-)
+# --- KULLANICI ARAYÜZÜ (AKICI TASARIM) ---
+if not st.session_state.sinav_bitti:
+    sol_kolon, sag_kolon = st.columns([2, 1])
+
+    with sol_kolon:
+        st.markdown("### 📷 Canlı Kamera Denetimi")
+        ctx = webrtc_streamer(
+            key="smooth_project_stream",
+            mode=WebRtcMode.SENDRECV,
+            video_processor_factory=SmoothProctorProcessor,
+            rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+            media_stream_constraints={"video": True, "audio": False},
+            async_processing=True
+        )
+
+    with sag_kolon:
+        st.markdown("### 🛠️ Sistem Kontrolleri")
+        st.success("Sistem şuan Akıcı Performans Modunda çalışıyor. Canlı telemetri verileri video ekranı üzerindeki HUD panelinden gecikmesiz izlenebilir.")
+        
+        # Kilitlenmeyi Streamlit döngüsü dışından güvenle dinlemek için küçük bir kontrol
+        if ctx.video_processor:
+            if ctx.video_processor.durum == "SISTEM KILITLENDI":
+                st.session_state.final_rapor_verisi = ctx.video_processor.history
+                st.session_state.sinav_bitti = True
+                st.rerun()
+
+        if st.button("Sınavı Başarıyla Bitir ve Rapor Üret", type="primary"):
+            if ctx.video_processor:
+                st.session_state.final_rapor_verisi = ctx.video_processor.history
+            st.session_state.sinav_bitti = True
+            st.rerun()
+
+# --- SINAV BİTTİ / JÜRİ RAPORU ---
+else:
+    st.markdown("## 📊 Sınav Değerlendirme ve Analiz Raporu")
+    st.markdown("---")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("#### 📈 Sınav Süresince Oluşan Hareket Grafiği")
+        if st.session_state.final_rapor_verisi:
+            df_rapor = pd.DataFrame(st.session_state.final_rapor_verisi).set_index("Saniye")
+            st.line_chart(df_rapor) # Tüm veriyi sınav bittiğinde tek seferde pürüzsüzce çizer
+        else:
+            st.info("Kısa süreli test yapıldığı için grafik verisi sınırda.")
+            
+    with c2:
+        st.markdown("#### 📂 Kanıt Odası (Snapshot)")
+        resimler = [f for f in os.listdir("kopya_kanitlari") if f.endswith(".jpg")]
+        if resimler:
+            en_yeni_resim = max([os.path.join("kopya_kanitlari", f) for f in resimler], key=os.path.getctime)
+            st.image(en_yeni_resim, caption="Sistemin Otomatik Olarak Diske Yazdığı İhlal Anı", use_container_width=True)
+        else:
+            st.success("Temiz Sınav: Herhangi bir kural ihlali veya kilitlenme yaşanmadı.")
+
+    if st.button("Yeniden Başlat"):
+        st.session_state.final_rapor_verisi = []
+        st.session_state.sinav_bitti = False
+        st.rerun()
