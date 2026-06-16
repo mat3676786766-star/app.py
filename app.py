@@ -5,14 +5,14 @@ import time
 import pandas as pd
 
 # Sayfa Genişlik Ayarı
-st.set_page_config(page_title="AI Matrix Pro", layout="wide")
+st.set_page_config(page_title="AI Matrix Pro v3", layout="wide")
 
-st.title("🌐 AI SAFETY MATRIX - TRACKING SYSTEM")
-st.caption("Eksen Kontrollü ve Durum Kilitli Canlı Analiz Modülü")
+st.title("🌐 AI SAFETY MATRIX - HARDWARE FIXED")
+st.caption("Donanım Öncelikli Eksen Kontrollü Takip Modülü")
 
-# Session State Hafıza Yapılandırması (Kalıcı Durumlar İçin)
+# Session State Hafıza Yapılandırması
 if "durum" not in st.session_state:
-    st.session_state.durum = "SAFE"  # Başlangıçta SAFE (Yeşil)
+    st.session_state.durum = "SAFE"
 if "suspicious_start" not in st.session_state:
     st.session_state.suspicious_start = None
 if "grafik_verisi" not in st.session_state:
@@ -27,9 +27,7 @@ sol_kolon, sag_kolon = st.columns([2, 1])
 
 with sol_kolon:
     st.markdown("### 📷 CANLI ANALİZ SEKANSI")
-    
-    # Donanımsal kilitlenmeleri önlemek için kamera indeksi seçici
-    cam_index = st.selectbox("Kamera Kaynağı (Açılmazsa Değiştirin):", [0, 1, 2], index=0)
+    cam_index = st.selectbox("Kamera İndeksi:", [0, 1, 2], index=0)
     kamera_butonu = st.toggle("Sistemi Güvenli Modda Başlat", value=False)
     kare_alani = st.empty()
 
@@ -43,17 +41,28 @@ with sag_kolon:
 
 # Ana Kamera Döngüsü
 if kamera_butonu:
-    kamera = cv2.VideoCapture(cam_index)
+    kamera = None
     
-    # Donanım kontrolü
+    # --- DONANIM BAĞLANTI SİHİRBAZI (Açılma Garantili Mod) ---
+    # Windows DirectShow sürücüsünü zorla (En sık yaşanan açılmama sebebi)
+    kamera = cv2.VideoCapture(cam_index, cv2.CAP_DSHOW)
+    
+    # Eğer DirectShow başarısız olursa standart modda açmayı dene
     if not kamera.isOpened():
-        st.error(f"Kamera (Index: {cam_index}) başlatılamadı! Lütfen diğer indeksi seçin veya izinleri kontrol edin.")
+        kamera = cv2.VideoCapture(cam_index)
+        
+    # O da yemezse MSMF (Media Foundation) dene
+    if not kamera.isOpened():
+        kamera = cv2.VideoCapture(cam_index, cv2.CAP_MSMF)
+        
+    if not kamera.isOpened():
+        st.error(f"❌ KRİTİK HATA: İşletim sistemi kamera donanımına erişimi engelliyor! Kamerayı kullanan başka bir uygulama (Zoom, Chrome, Discord vb.) varsa kapatıp sayfayı yenileyin.")
     
-    while kamera.isOpened():
+    while kamera is not None and kamera.isOpened():
         ret, kare = kamera.read()
-        if not ret:
-            st.warning("Kamera akışından kare okunamıyor...")
-            break
+        if not ret or kare is None:
+            # Anlık kare kaçırma durumunda hemen pes etme, döngüyü sürdür
+            continue
             
         kare = cv2.flip(kare, 1)
         h, w, _ = kare.shape
@@ -82,18 +91,18 @@ if kamera_butonu:
             cx_yuz = x + w_box // 2
             cy_yuz = y + h_box // 2
             
-            # Merkeze olan uzaklığa göre anlık açı tahmini
+            # Açı Tahminleri
             yaw = float(((cx_yuz - cx_ekran) / cx_ekran) * 45.0)
             pitch = float(((cy_ekran - cy_yuz) / cy_ekran) * 35.0)
             
-            # Hassas kafa hareketi tespiti (Eşik değeri: 1.5 derece)
+            # Hassas kafa hareketi tespiti (Eşik: 1.5 derece)
             if abs(yaw - st.session_state.last_yaw) > 1.5 or abs(pitch - st.session_state.last_pitch) > 1.5:
                 hareket_var = True
                 
             st.session_state.last_yaw = yaw
             st.session_state.last_pitch = pitch
 
-        # --- Gelişmiş Durum Makinesi (State Machine) Mantığı ---
+        # --- Durum Makinesi Mantığı ---
         if st.session_state.durum != "KOPYA ÇEKİYOR":
             if hareket_var:
                 if st.session_state.durum == "SAFE":
@@ -104,12 +113,12 @@ if kamera_butonu:
                     if time.time() - st.session_state.suspicious_start > 5.0:
                         st.session_state.durum = "KOPYA ÇEKİYOR"
             else:
-                # Hareket 5 saniyeden önce durduysa tekrar SAFE moduna dönme izni
+                # Hareket 5 saniyeden önce durduysa affet ve SAFE moduna döndür
                 if st.session_state.durum == "KOPYA İHTİMALİ VAR":
                     st.session_state.durum = "SAFE"
                     st.session_state.suspicious_start = None
 
-        # Renk Kodları ve Grafik Metin Ayarları
+        # Dinamik Renk ve Metin Kodlamaları
         if st.session_state.durum == "SAFE":
             renk_bgr = (0, 255, 0)       # Yeşil
             renk_hex = "#00FF00"
@@ -117,40 +126,39 @@ if kamera_butonu:
             renk_bgr = (0, 255, 255)     # Sarı
             renk_hex = "#FFFF00"
         else:
-            renk_bgr = (0, 0, 255)       # Kırmızı (Kalıcı Kilit)
+            renk_bgr = (0, 0, 255)       # Kırmızı (Kalıcı)
             renk_hex = "#FF0000"
 
-        # Ekrana Kutuları Çizme
+        # Görsel Çizimler
         if en_buyuk_kontur is not None:
-            # Eğer bir kez KOPYA ÇEKİYOR olduysa, etrafı tamamen kalıcı kırmızı kutu olur
+            # Kopya çekiyorsa etrafı daima kırmızı kutu kalır
             kutu_rengi = (0, 0, 255) if st.session_state.durum == "KOPYA ÇEKİYOR" else renk_bgr
             cv2.rectangle(kare, (x, y), (x + w_box, y + h_box), kutu_rengi, 3)
             cv2.putText(kare, f"{st.session_state.durum}", (x, y - 10), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, kutu_rengi, 2)
 
-        # Sağ Arayüz Paneli Güncellemeleri
+        # Sağ Arayüz Paneli Çıktıları
         durum_alani.markdown(f"### DURUM: <span style='color:{renk_hex}; font-weight:bold;'>{st.session_state.durum}</span>", unsafe_allow_html=True)
         deger_alani.code(f"Anlık Yaw (Yatay) : {yaw:.2f}°\nAnlık Pitch (Dikey): {pitch:.2f}°")
         
-        # Gerçek Zamanlı Grafik Matrisi Veri Girişi
+        # Gerçek Zamanlı Grafik Güncelleme
         st.session_state.grafik_verisi.append({
             "Milisaniye": time.time() * 1000, 
-            "Yaw (Yatay Eksendeki Hareket)": yaw, 
-            "Pitch (Dikey Eksendeki Hareket)": pitch
+            "Yaw": yaw, 
+            "Pitch": pitch
         })
         
-        # Grafik akışının şişmemesi için son 50 kareyi hafızada tut
         if len(st.session_state.grafik_verisi) > 50:
             st.session_state.grafik_verisi.pop(0)
             
         df_grafik = pd.DataFrame(st.session_state.grafik_verisi).set_index("Milisaniye")
         grafik_alani.line_chart(df_grafik)
 
-        # Görüntüyü Web Arayüzüne Aktarma
+        # Görüntüyü Bas
         kare_rgb = cv2.cvtColor(kare, cv2.COLOR_BGR2RGB)
         kare_alani.image(kare_rgb, channels="RGB")
         
-        # İşlemciyi korumak için kararlı çalışma gecikmesi
-        time.sleep(0.02)
+        time.sleep(0.03)
         
-    kamera.release()
+    if kamera is not None:
+        kamera.release()
