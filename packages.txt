@@ -1,2 +1,10 @@
-libgl1-mesa-glx
+libgl1
 libglib2.0-0
+pkg-config
+libavformat-dev
+libavcodec-dev
+libavdevice-dev
+libutil-dev
+libswscale-dev
+libswresample-dev
+libavfilter-dev
