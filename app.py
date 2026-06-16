@@ -56,15 +56,24 @@ with sag_kolon:
     st.markdown("#### 📜 SİSTEM GÜVENLİK LOGLARI")
     log_alani = st.empty()
 
-# --- YENİLENEN KAMERA VE DÖNGÜ YÖNETİMİ ---
+# --- YENİLENEN KAMERA VE ZAMAN YÖNETİMİ ---
 if kamera_butonu and not st.session_state.kopya_kilitlendi:
+    
+    # [KRİTİK DÜZELTME]: Butona basıldığı an zamanlayıcıları sıfırla ki kısırdöngüye girmesin
+    if not st.session_state.get("kamera_aktif_sinyali", False):
+        st.session_state.sinav_baslangic_zamani = time.time()
+        st.session_state.son_kontrol_zamani = time.time()
+        st.session_state.kalibrasyon_baslangic = time.time()
+        st.session_state.son_goz_kirpma_zamani = time.time()
+        st.session_state.kamera_aktif_sinyali = True
+
     kamera = cv2.VideoCapture(0)
     
     try:
         while kamera.isOpened() and not st.session_state.kopya_kilitlendi:
             ret, kare = kamera.read()
             if not ret or kare is None: 
-                st.warning("Kameraya erişilemiyor. Lütfen izinleri kontrol edin.")
+                st.warning("Kameradan görüntü alınamıyor. Sürücüleri veya izinleri kontrol edin.")
                 break
             
             kare = cv2.flip(kare, 1)
@@ -73,11 +82,10 @@ if kamera_butonu and not st.session_state.kopya_kilitlendi:
             gri_bulanik = cv2.GaussianBlur(gri, (5, 5), 0)
             ihlaller_tetiklendi = False
             
-            # --- DÖNGÜ İÇİ CANLILIK DOĞRULAMA KONTROLÜ ---
+            # --- CANLILIK DOĞRULAMA DÖNGÜSÜ ---
             if st.session_state.kontrol_aktif:
                 kalan_onay = max(0.0, 8.0 - (time.time() - st.session_state.onay_suresi_baslangic))
                 if kalan_onay > 0:
-                    # Buton döngü içinde render edilerek saniye dinamik olarak akar
                     if canlilik_butonu_alani.button(f"🔴 CANLILIK DOĞRULAMASI: BURAYA TIKLAYIN ({kalan_onay:.1f}sn)", key="canlilik_butonu_dinamik"):
                         st.session_state.kontrol_aktif = False
                         st.session_state.son_kontrol_zamani = time.time()
@@ -259,11 +267,11 @@ if kamera_butonu and not st.session_state.kopya_kilitlendi:
                         web_log_kaydet("ALARM: Ekran tamamen terk edildi!")
                         break
 
-            # Soğuma (Risk Azaltma)
+            # Soğuma
             if not ihlaller_tetiklendi and st.session_state.kalibrasyon_bitti:
                 st.session_state.risk_orani = max(0.0, st.session_state.risk_orani - 0.5)
 
-            # Canlılık Testi Zamanlayıcı Tetikleyici
+            # Canlılık Testi Tetikleyici Kontrolü
             su_an = time.time()
             if not st.session_state.kontrol_aktif and (su_an - st.session_state.son_kontrol_zamani > st.session_state.kontrol_bekleme_suresi):
                 st.session_state.kontrol_aktif = True
@@ -274,24 +282,28 @@ if kamera_butonu and not st.session_state.kopya_kilitlendi:
             gecen_sure = time.time() - st.session_state.sinav_baslangic_zamani
             toplam_saniye = max(0, (SINAV_SURESI_DAKIKA * 60) - gecen_sure)
             kalan_sure_alani.metric("⏱️ Kalan Sınav Süresi", f"{int(toplam_saniye // 60):02d}:{int(toplam_saniye % 60):02d}")
-            kitle_sayisi_alani.text(f"Kitle Sayısı: {temiz_kitle_sayisi if st.session_state.kalibrasyon_bitti else 0}")
+            kitle_sayisi_alani.text(f"Kitle Sayısı: {temiz_kitle_sayisi}")
             sensor_durumu_alani.code(f"Sistem Durumu: {st.session_state.durum_mesaji}\nSensör: {st.session_state.isik_durumu_metni}")
             
             risk_yuzde = int(st.session_state.risk_orani)
             risk_bar_alani.progress(risk_yuzde / 100.0, text=f"🔥 KOPYA İHTİMALİ: %{risk_yuzde}")
             log_alani.text_area("Canlı Akış", value="\n".join(st.session_state.loglar[-8:]), height=200)
 
-            # Görüntüyü Ekrana Bas
+            # Görüntüyü Bas
             kare_rgb = cv2.cvtColor(kare, cv2.COLOR_BGR2RGB)
             kare_alani.image(kare_rgb, channels="RGB")
             time.sleep(0.05)
             
     finally:
-        # Döngü kırılsa da, st.rerun() atılsa da kamera mutlaka güvenle serbest bırakılır.
         kamera.release()
+else:
+    # Toggle kapatılırsa durum sinyalini sıfırla
+    st.session_state.kamera_aktif_sinyali = False
 
-# --- BLOKE DURUMU ---
 if st.session_state.kopya_kilitlendi:
+    st.error("❌ MATRİS KİLİTLENDİ: GÜVENLİK İHLALİ TESPİT EDİLDİ!")
+    risk_bar_alani.progress(1.0, text="🔥 KOPYA İHTİMALİ: %100 - TERMINATED")
+    log_alani.text_area("Canlı Akış", value="\n".join(st.session_state.loglar[-8:]), height=200)
     st.error("❌ MATRİS KİLİTLENDİ: GÜVENLİK İHLALİ TESPİT EDİLDİ!")
     risk_bar_alani.progress(1.0, text="🔥 KOPYA İHTİMALİ: %100 - TERMINATED")
     log_alani.text_area("Canlı Akış", value="\n".join(st.session_state.loglar[-8:]), height=200)
