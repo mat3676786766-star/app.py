@@ -1,17 +1,33 @@
+import os
+import sys
+import subprocess
+
+# =====================================================================
+# 🔥 SUNUCU KORUMA VE KENDİ KENDİNİ TAMİR ETME SİSTEMİ (NÜKLEER ÇÖZÜM) 🔥
+# =====================================================================
+# Streamlit Cloud'un grafik kütüphanesi hatası vermesini doğrudan kod içinden engelliyoruz.
+try:
+    import cv2
+except (ImportError, Exception):
+    # Eğer standart OpenCV çökme yaratırsa, sunucudaki tüm OpenCV kalıntılarını kazı
+    subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "opencv-python", "opencv-python-headless"])
+    # Sunucuya grafik arayüzü istemeyen "headless" sürümü zorla enjekte et
+    subprocess.run([sys.executable, "-m", "pip", "install", "opencv-python-headless==4.9.0.80"])
+    import cv2
+
+# Ana kütüphaneleri şimdi güvenle çağırabiliriz
 import streamlit as st
-import cv2
 import numpy as np
 import time
-import os
 import pandas as pd
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 import mediapipe as mp
 
 # Sayfa Yapılandırması
-st.set_page_config(page_title="AI Proctoring Smooth", layout="wide")
+st.set_page_config(page_title="AI Proctoring Fixed", layout="wide")
 
-st.title("🛡️ AKILLI SINAV GÜVENLİK SİSTEMİ (PERFORMANS MODU)")
-st.caption("3 Saniye Başlangıç Sayacı, Arka Plan Telemetri Kaydı ve Sınav Sonu Raporlama")
+st.title("🛡️ AKILLI SINAV GÜVENLİK SİSTEMİ (BULUT MODU)")
+st.caption("Kendi Kendini Onaran Altyapı ve Arka Plan Telemetri Kaydı")
 
 # Klasör kontrolü
 if not os.path.exists("kopya_kanitlari"):
@@ -40,8 +56,6 @@ class SmoothProctorProcessor(VideoProcessorBase):
         self.last_pitch = 0.0
         self.snapshot_saved = False
         self.init_time = time.time()
-        
-        # CPU'yu yormayan dahili veri geçmişi hafızası
         self.history = []
 
     def recv(self, frame):
@@ -49,7 +63,6 @@ class SmoothProctorProcessor(VideoProcessorBase):
         kare = cv2.flip(kare, 1)
         h, w, _ = kare.shape
 
-        # Hazırlık sayacı hesabı
         gecen_hazirlik_suresi = time.time() - self.init_time
         kalan_hazirlik = max(0.0, 3.0 - gecen_hazirlik_suresi)
 
@@ -68,7 +81,6 @@ class SmoothProctorProcessor(VideoProcessorBase):
             alin = np.array([yuz_noktalari[10].x * w, yuz_noktalari[10].y * h])
             cene = np.array([yuz_noktalari[152].x * w, yuz_noktalari[152].y * h])
 
-            # Açı Oranlamaları
             sol_mesafe = np.linalg.norm(burun - sol_goz)
             sag_mesafe = np.linalg.norm(burun - sag_goz)
             yaw = float((sol_mesafe / (sag_mesafe + 1e-6) - 1.0) * 100.0)
@@ -91,7 +103,6 @@ class SmoothProctorProcessor(VideoProcessorBase):
             if kalan_hazirlik == 0:
                 ihlal_var = True
 
-        # --- DURUM MAKİNESİ SÜREÇLERİ ---
         if kalan_hazirlik > 0:
             self.durum = f"HAZIRLANIN ({kalan_hazirlik:.1f}s)"
             renk = (255, 140, 0)
@@ -117,25 +128,21 @@ class SmoothProctorProcessor(VideoProcessorBase):
             else:
                 renk = (0, 0, 255)
 
-        # Veriyi arka plan listesine sessizce kaydet (Kasmayı önleyen sihirli kısım)
         self.history.append({
-            "Saniye": len(self.history) * 0.03, # Yaklaşık kare zamanı
+            "Saniye": len(self.history) * 0.03,
             "Sağa/Sola Sapma (Yaw)": self.last_yaw,
             "Yukarı/Aşağı Sapma (Pitch)": self.last_pitch,
             "Anlık Risk Skoru": self.violation_score
         })
 
-        # HUD PANEL METİNLERİ
         cv2.rectangle(kare, (10, 10), (420, 140), (0, 0, 0), -1)
         cv2.putText(kare, f"DURUM: {self.durum}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, renk, 2)
         cv2.putText(kare, f"Yaw (Sag/Sol)  : {self.last_yaw:.1f}", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         cv2.putText(kare, f"Pitch (Ust/Alt) : {self.last_pitch:.1f}", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         
-        # İlerleme Çubuğu
         cv2.rectangle(kare, (20, 115), (400, 125), (50, 50, 50), -1)
         cv2.rectangle(kare, (20, 115), (20 + int(self.violation_score * 3.8), 125), renk, -1)
 
-        # Otomatik Fotoğraf Mühürleme
         if self.durum == "SISTEM KILITLENDI" and not self.snapshot_saved:
             cv2.imwrite(f"kopya_kanitlari/ihlal_{int(time.time())}.jpg", kare)
             self.snapshot_saved = True
@@ -146,7 +153,7 @@ class SmoothProctorProcessor(VideoProcessorBase):
 
         return frame.from_ndarray(kare, format="bgr24")
 
-# --- KULLANICI ARAYÜZÜ (AKICI TASARIM) ---
+# --- KULLANICI ARAYÜZÜ ---
 if not st.session_state.sinav_bitti:
     sol_kolon, sag_kolon = st.columns([2, 1])
 
@@ -163,9 +170,8 @@ if not st.session_state.sinav_bitti:
 
     with sag_kolon:
         st.markdown("### 🛠️ Sistem Kontrolleri")
-        st.success("Sistem şuan Akıcı Performans Modunda çalışıyor. Canlı telemetri verileri video ekranı üzerindeki HUD panelinden gecikmesiz izlenebilir.")
+        st.success("Sistem şuan Akıcı Performans Modunda çalışıyor.")
         
-        # Kilitlenmeyi Streamlit döngüsü dışından güvenle dinlemek için küçük bir kontrol
         if ctx.video_processor:
             if ctx.video_processor.durum == "SISTEM KILITLENDI":
                 st.session_state.final_rapor_verisi = ctx.video_processor.history
@@ -178,7 +184,6 @@ if not st.session_state.sinav_bitti:
             st.session_state.sinav_bitti = True
             st.rerun()
 
-# --- SINAV BİTTİ / JÜRİ RAPORU ---
 else:
     st.markdown("## 📊 Sınav Değerlendirme ve Analiz Raporu")
     st.markdown("---")
@@ -188,18 +193,19 @@ else:
         st.markdown("#### 📈 Sınav Süresince Oluşan Hareket Grafiği")
         if st.session_state.final_rapor_verisi:
             df_rapor = pd.DataFrame(st.session_state.final_rapor_verisi).set_index("Saniye")
-            st.line_chart(df_rapor) # Tüm veriyi sınav bittiğinde tek seferde pürüzsüzce çizer
+            st.line_chart(df_rapor)
         else:
-            st.info("Kısa süreli test yapıldığı için grafik verisi sınırda.")
+            st.info("Grafik verisi bulunamadı.")
             
     with c2:
         st.markdown("#### 📂 Kanıt Odası (Snapshot)")
-        resimler = [f for f in os.listdir("kopya_kanitlari") if f.endswith(".jpg")]
-        if resimler:
-            en_yeni_resim = max([os.path.join("kopya_kanitlari", f) for f in resimler], key=os.path.getctime)
-            st.image(en_yeni_resim, caption="Sistemin Otomatik Olarak Diske Yazdığı İhlal Anı", use_container_width=True)
-        else:
-            st.success("Temiz Sınav: Herhangi bir kural ihlali veya kilitlenme yaşanmadı.")
+        if os.path.exists("kopya_kanitlari"):
+            resimler = [f for f in os.listdir("kopya_kanitlari") if f.endswith(".jpg")]
+            if resimler:
+                en_yeni_resim = max([os.path.join("kopya_kanitlari", f) for f in resimler], key=os.path.getctime)
+                st.image(en_yeni_resim, caption="Sistemin Otomatik Kaydettiği İhlal Anı", use_container_width=True)
+            else:
+                st.success("Temiz Sınav: Herhangi bir kural ihlali yaşanmadı.")
 
     if st.button("Yeniden Başlat"):
         st.session_state.final_rapor_verisi = []
