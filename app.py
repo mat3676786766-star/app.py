@@ -19,6 +19,7 @@ import time
 import pandas as pd
 import cv2
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
+from ultralytics import YOLO
 
 st.set_page_config(page_title="AI Proctoring", layout="wide")
 st.title("🛡️ AKILLI SINAV GÜVENLİK SİSTEMİ")
@@ -47,6 +48,7 @@ if "stream_id" not in st.session_state:
 class ProctorProcessor(VideoProcessorBase):
     def __init__(self):
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        self.net = YOLO("yolov8n.pt")
         self.durum = "SAFE"
         self.violation_score = 0.0
         self.snapshot_saved = False
@@ -81,41 +83,51 @@ class ProctorProcessor(VideoProcessorBase):
             if kalan_hazirlik == 0:
                 ihlal_tetiklendi = True
 
-        if kalan_hazirlik > 0:
-            self.durum = f"HAZIRLANIN ({kalan_hazirlik:.1f}s)"
-            renk = (255, 140, 0)
-        else:
-            if ihlal_tetiklendi:
-                if self.violation_start_time is None:
-                    self.violation_start_time = time.time()
-                
-                if time.time() - self.violation_start_time >= 3.0:
-                    self.durum = "UYARI: ŞÜPHELİ"
-                    self.violation_score = min(100.0, self.violation_score + 5.0)
-                    if self.violation_score >= 100.0:
-                        self.durum = "KİLİTLENDİ"
+        yolo_sonuclar = self.net(kare, verbose=False)
+        for r in yolo_sonuclar:
+            for kutu in r.boxes:
+                cls_id = int(kutu.cls[0])
+                if cls_id in [63, 67]:
+                    ihlal_tetiklendi = True
+                    bx = kutu.xyxy[0]
+                    cv2.rectangle(kare, (int(bx[0]), int(bx[1])), (int(bx[2]), int(bx[3])), (0, 0, 255), 2)
+                    cv2.putText(kare, "CIHAZ", (int(bx[0]), int(bx[1]) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+            if kalan_hazirlik > 0:
+                self.durum = f"HAZIRLANIN ({kalan_hazirlik:.1f}s)"
+                renk = (255, 140, 0)
             else:
-                self.violation_start_time = None
-                if self.violation_score > 0:
-                    self.violation_score = max(0.0, self.violation_score - 4.0)
-                if self.violation_score == 0.0:
-                    self.durum = "SAFE"
+                if ihlal_tetiklendi:
+                    if self.violation_start_time is None:
+                        self.violation_start_time = time.time()
+                    
+                    if time.time() - self.violation_start_time >= 3.0:
+                        self.durum = "UYARI: ŞÜPHELİ"
+                        self.violation_score = min(100.0, self.violation_score + 5.0)
+                        if self.violation_score >= 100.0:
+                            self.durum = "KİLİTLENDİ"
+                else:
+                    self.violation_start_time = None
+                    if self.violation_score > 0:
+                        self.violation_score = max(0.0, self.violation_score - 4.0)
+                    if self.violation_score == 0.0:
+                        self.durum = "SAFE"
 
-            renk = (0, 255, 0) if "SAFE" in self.durum else ((0, 255, 255) if "UYARI" in self.durum else (0, 0, 255))
+                renk = (0, 255, 0) if "SAFE" in self.durum else ((0, 255, 255) if "UYARI" in self.durum else (0, 0, 255))
 
-        self.history.append({"Saniye": len(self.history) * 0.1, "Risk Skoru": self.violation_score})
+            self.history.append({"Saniye": len(self.history) * 0.1, "Risk Skoru": self.violation_score})
 
-        cv2.rectangle(kare, (10, 10), (380, 110), (0, 0, 0), -1)
-        cv2.putText(kare, f"DURUM: {self.durum}", (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, renk, 2)
-        cv2.putText(kare, f"Risk: {self.violation_score:.1f}%", (20, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        cv2.rectangle(kare, (20, 85), (360, 95), (50, 50, 50), -1)
-        cv2.rectangle(kare, (20, 85), (20 + int(self.violation_score * 3.4), 95), renk, -1)
+            cv2.rectangle(kare, (10, 10), (380, 110), (0, 0, 0), -1)
+            cv2.putText(kare, f"DURUM: {self.durum}", (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, renk, 2)
+            cv2.putText(kare, f"Risk: {self.violation_score:.1f}%", (20, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            cv2.rectangle(kare, (20, 85), (360, 95), (50, 50, 50), -1)
+            cv2.rectangle(kare, (20, 85), (20 + int(self.violation_score * 3.4), 95), renk, -1)
 
-        if self.durum == "KİLİTLENDİ" and not self.snapshot_saved:
-            cv2.imwrite(f"kopya_kanitlari/ihlal_kaniti.jpg", kare)
-            self.snapshot_saved = True
+            if self.durum == "KİLİTLENDİ" and not self.snapshot_saved:
+                cv2.imwrite(f"kopya_kanitlari/ihlal_kaniti.jpg", kare)
+                self.snapshot_saved = True
 
-        return frame.from_ndarray(kare, format="bgr24")
+            return frame.from_ndarray(kare, format="bgr24")
 
 if not st.session_state.sinav_bitti:
     sol, sag = st.columns([2, 1])
