@@ -3,3 +3,4 @@ streamlit-webrtc>=0.47.0
 opencv-python-headless>=4.9.0.80
 pandas
 numpy<2.0.0
+ultralytics
