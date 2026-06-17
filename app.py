@@ -27,7 +27,7 @@ class ProctorProcessor(VideoProcessorBase):
         self.snapshot_saved = False
         self.init_time = time.time()
         self.history = []
-        self.consecutive_violations = 0
+        self.violation_start_time = None
 
     def recv(self, frame):
         kare = frame.to_ndarray(format="bgr24")
@@ -61,18 +61,18 @@ class ProctorProcessor(VideoProcessorBase):
             renk = (255, 140, 0)
         else:
             if ihlal_tetiklendi:
-                self.consecutive_violations += 1
+                if self.violation_start_time is None:
+                    self.violation_start_time = time.time()
+                
+                if time.time() - self.violation_start_time >= 3.0:
+                    self.durum = "UYARI: ŞÜPHELİ"
+                    self.violation_score = min(100.0, self.violation_score + 5.0)
+                    if self.violation_score >= 100.0:
+                        self.durum = "KİLİTLENDİ"
             else:
-                self.consecutive_violations = max(0, self.consecutive_violations - 2)
-
-            if self.consecutive_violations >= 15:
-                self.durum = "UYARI: ŞÜPHELİ"
-                self.violation_score = min(100.0, self.violation_score + 4.0)
-                if self.violation_score >= 100.0:
-                    self.durum = "KİLİTLENDİ"
-            else:
+                self.violation_start_time = None
                 if self.violation_score > 0:
-                    self.violation_score = max(0.0, self.violation_score - 5.0)
+                    self.violation_score = max(0.0, self.violation_score - 4.0)
                 if self.violation_score == 0.0:
                     self.durum = "SAFE"
 
