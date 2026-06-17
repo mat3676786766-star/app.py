@@ -1,5 +1,19 @@
 import os
 import streamlit as st
+
+try:
+    import streamlit_webrtc.shutdown
+    if hasattr(streamlit_webrtc.shutdown, "SessionShutdownObserver"):
+        orig_stop = streamlit_webrtc.shutdown.SessionShutdownObserver.stop
+        def patched_stop(self, *args, **kwargs):
+            try:
+                return orig_stop(self, *args, **kwargs)
+            except Exception:
+                return
+        streamlit_webrtc.shutdown.SessionShutdownObserver.stop = patched_stop
+except Exception:
+    pass
+
 import numpy as np
 import time
 import pandas as pd
