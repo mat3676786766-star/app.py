@@ -27,6 +27,8 @@ if "sinav_bitti" not in st.session_state:
     st.session_state.sinav_bitti = False
 if "kilitlendi_mi" not in st.session_state:
     st.session_state.kilitlendi_mi = False
+if "stream_id" not in st.session_state:
+    st.session_state.stream_id = 0
 
 class ProctorProcessor(VideoProcessorBase):
     def __init__(self):
@@ -105,7 +107,7 @@ if not st.session_state.sinav_bitti:
     sol, sag = st.columns([2, 1])
     with sol:
         ctx = webrtc_streamer(
-            key="proctor_stream",
+            key=f"proctor_stream_{st.session_state.stream_id}",
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=ProctorProcessor,
             rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}, {"urls": ["stun:stun1.l.google.com:19302"]}]},
@@ -140,12 +142,13 @@ else:
     if os.path.exists("kopya_kanitlari/ihlal_kaniti.jpg"):
         st.image("kopya_kanitlari/ihlal_kaniti.jpg", caption="Sistem Tarafından Yakalanan İhlal Kanıtı", use_container_width=True)
     else:
-        st.success("Tebrikler, herhangi bir güvenlik ihlali olmadan sınav tamamlandı.")
+        st.success("Tebrikler, herhangi bir security ihlali olmadan sınav tamamlandı.")
         
     if st.button("Yeni Sınav Başlat"):
         st.session_state.sinav_bitti = False
         st.session_state.kilitlendi_mi = False
         st.session_state.final_rapor_verisi = []
+        st.session_state.stream_id += 1
         if os.path.exists("kopya_kanitlari/ihlal_kaniti.jpg"):
             os.remove("kopya_kanitlari/ihlal_kaniti.jpg")
         st.rerun()
