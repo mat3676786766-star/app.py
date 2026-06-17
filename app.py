@@ -49,7 +49,7 @@ class ProctorProcessor(VideoProcessorBase):
         kalan_hazirlik = max(0.0, 3.0 - gecen_sure)
 
         gri_kare = cv2.cvtColor(kare, cv2.COLOR_BGR2GRAY)
-        yuzler = self.face_cascade.detectMultiScale(gri_kare, scaleFactor=1.2, minNeighbors=5, minSize=(50, 50))
+        yuzler = self.face_cascade.detectMultiScale(gri_kare, scaleFactor=1.1, minNeighbors=4, minSize=(30, 30))
 
         ihlal_tetiklendi = False
 
@@ -111,7 +111,7 @@ if not st.session_state.sinav_bitti:
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=ProctorProcessor,
             rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}, {"urls": ["stun:stun1.l.google.com:19302"]}]},
-            media_stream_constraints={"video": {"width": {"ideal": 640}, "height": {"ideal": 480}}, "audio": False},
+            media_stream_constraints={"video": {"width": {"ideal": 480}, "height": {"ideal": 360}}, "audio": False},
             async_processing=True
         )
     with sag:
@@ -142,7 +142,7 @@ else:
     if os.path.exists("kopya_kanitlari/ihlal_kaniti.jpg"):
         st.image("kopya_kanitlari/ihlal_kaniti.jpg", caption="Sistem Tarafından Yakalanan İhlal Kanıtı", use_container_width=True)
     else:
-        st.success("Tebrikler, herhangi bir security ihlali olmadan sınav tamamlandı.")
+        st.success("Tebrikler, herhangi bir güvenlik ihlali olmadan sınav tamamlandı.")
         
     if st.button("Yeni Sınav Başlat"):
         st.session_state.sinav_bitti = False
