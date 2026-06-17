@@ -4,7 +4,6 @@ import numpy as np
 import time
 import pandas as pd
 import cv2
-import mediapipe as mp
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 
 st.set_page_config(page_title="AI Proctoring", layout="wide")
@@ -20,13 +19,9 @@ if "sinav_bitti" not in st.session_state:
 if "kilitlendi_mi" not in st.session_state:
     st.session_state.kilitlendi_mi = False
 
-mp_face_mesh = mp.solutions.face_mesh
-
 class ProctorProcessor(VideoProcessorBase):
     def __init__(self):
-        self.face_mesh = mp_face_mesh.FaceMesh(
-            max_num_faces=1, refine_landmarks=True, min_detection_confidence=0.5, min_tracking_confidence=0.5
-        )
+        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         self.durum = "SAFE"
         self.violation_score = 0.0
         self.snapshot_saved = False
@@ -41,23 +36,18 @@ class ProctorProcessor(VideoProcessorBase):
         gecen_sure = time.time() - self.init_time
         kalan_hazirlik = max(0.0, 3.0 - gecen_sure)
 
-        rgb_kare = cv2.cvtColor(kare, cv2.COLOR_BGR2RGB)
-        sonuclar = self.face_mesh.process(rgb_kare)
+        gri_kare = cv2.cvtColor(kare, cv2.COLOR_BGR2GRAY)
+        yuzler = self.face_cascade.detectMultiScale(gri_kare, scaleFactor=1.3, minNeighbors=5, minSize=(30, 30))
 
         ihlal_var = False
 
-        if sonuclar.multi_face_landmarks:
-            yuz = sonuclar.multi_face_landmarks[0].landmark
-            burun = np.array([yuz[1].x * w, yuz[1].y * h])
-            sol_goz = np.array([yuz[33].x * w, yuz[33].y * h])
-            sag_goz = np.array([yuz[263].x * w, yuz[263].y * h])
-            alin = np.array([yuz[10].x * w, yuz[10].y * h])
-            cene = np.array([yuz[152].x * w, yuz[152].y * h])
+        if len(yuzler) == 1:
+            (x, y, w_box, h_box) = yuzler[0]
+            yuz_merkez_x = x + (w_box / 2)
+            ekran_merkez_x = w / 2
+            sapma = (yuz_merkez_x - ekran_merkez_x) / w
 
-            yaw = float((np.linalg.norm(burun - sol_goz) / (np.linalg.norm(burun - sag_goz) + 1e-6) - 1.0) * 100.0)
-            pitch = float((np.linalg.norm(burun - alin) / (np.linalg.norm(burun - cene) + 1e-6) - 1.2) * 100.0)
-
-            if abs(yaw) > 25.0 or abs(pitch) > 20.0:
+            if abs(sapma) > 0.15:
                 ihlal_var = True
         else:
             if kalan_hazirlik == 0:
@@ -69,12 +59,12 @@ class ProctorProcessor(VideoProcessorBase):
         else:
             if ihlal_var:
                 self.durum = "UYARI: ŞÜPHELİ"
-                self.violation_score = min(100.0, self.violation_score + 5.0)
+                self.violation_score = min(100.0, self.violation_score + 8.0)
                 if self.violation_score >= 100.0: 
                     self.durum = "KİLİTLENDİ"
             else:
                 if self.violation_score > 0:
-                    self.violation_score = max(0.0, self.violation_score - 2.0)
+                    self.violation_score = max(0.0, self.violation_score - 3.0)
                 if self.violation_score == 0.0: 
                     self.durum = "SAFE"
 
@@ -101,7 +91,7 @@ if not st.session_state.sinav_bitti:
             key="proctor_stream",
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=ProctorProcessor,
-            rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"], "urls": ["stun:stun1.l.google.com:19302"]}]},
+            rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}, {"urls": ["stun:stun1.l.google.com:19302"]}]},
             media_stream_constraints={"video": {"width": {"ideal": 640}, "height": {"ideal": 480}}, "audio": False},
             async_processing=True
         )
