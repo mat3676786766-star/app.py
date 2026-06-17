@@ -9,6 +9,15 @@ from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 st.set_page_config(page_title="AI Proctoring", layout="wide")
 st.title("🛡️ AKILLI SINAV GÜVENLİK SİSTEMİ")
 
+st.sidebar.markdown("## 👤 GELİŞTİRİCİ BİLGİLERİ")
+st.sidebar.write("**Geliştirici:** Muhammed Aydın TEKİN")
+st.sidebar.write("**Proje Amacı:** Çevrimiçi sınavlarda dürüstlüğü ve sınav güvenliğini sağlamak amacıyla yapay zekâ destekli anlık yüz takibi ve ihlal tespiti gerçekleştirmek.")
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ⚙️ Çalışma Prensibi")
+st.sidebar.write("• Odada tek bir kişinin olması zorunludur.")
+st.sidebar.write("• Kameradan 3 saniyeden uzun süre uzaklaşmak veya başka yöne odaklanmak ihlal sayılır.")
+st.sidebar.write("• Risk skoru %100 olduğunda sistem kilitlenir ve kanıt fotoğrafı kaydeder.")
+
 if not os.path.exists("kopya_kanitlari"):
     os.makedirs("kopya_kanitlari")
 
