@@ -27,6 +27,7 @@ class ProctorProcessor(VideoProcessorBase):
         self.snapshot_saved = False
         self.init_time = time.time()
         self.history = []
+        self.consecutive_violations = 0
 
     def recv(self, frame):
         kare = frame.to_ndarray(format="bgr24")
@@ -37,9 +38,9 @@ class ProctorProcessor(VideoProcessorBase):
         kalan_hazirlik = max(0.0, 3.0 - gecen_sure)
 
         gri_kare = cv2.cvtColor(kare, cv2.COLOR_BGR2GRAY)
-        yuzler = self.face_cascade.detectMultiScale(gri_kare, scaleFactor=1.3, minNeighbors=5, minSize=(30, 30))
+        yuzler = self.face_cascade.detectMultiScale(gri_kare, scaleFactor=1.2, minNeighbors=5, minSize=(50, 50))
 
-        ihlal_var = False
+        ihlal_tetiklendi = False
 
         if len(yuzler) == 1:
             (x, y, w_box, h_box) = yuzler[0]
@@ -47,25 +48,32 @@ class ProctorProcessor(VideoProcessorBase):
             ekran_merkez_x = w / 2
             sapma = (yuz_merkez_x - ekran_merkez_x) / w
 
-            if abs(sapma) > 0.15:
-                ihlal_var = True
+            if abs(sapma) > 0.25:
+                ihlal_tetiklendi = True
+        elif len(yuzler) > 1:
+            ihlal_tetiklendi = True
         else:
             if kalan_hazirlik == 0:
-                ihlal_var = True
+                ihlal_tetiklendi = True
 
         if kalan_hazirlik > 0:
             self.durum = f"HAZIRLANIN ({kalan_hazirlik:.1f}s)"
             renk = (255, 140, 0)
         else:
-            if ihlal_var:
+            if ihlal_tetiklendi:
+                self.consecutive_violations += 1
+            else:
+                self.consecutive_violations = max(0, self.consecutive_violations - 2)
+
+            if self.consecutive_violations >= 15:
                 self.durum = "UYARI: ŞÜPHELİ"
-                self.violation_score = min(100.0, self.violation_score + 8.0)
-                if self.violation_score >= 100.0: 
+                self.violation_score = min(100.0, self.violation_score + 4.0)
+                if self.violation_score >= 100.0:
                     self.durum = "KİLİTLENDİ"
             else:
                 if self.violation_score > 0:
-                    self.violation_score = max(0.0, self.violation_score - 3.0)
-                if self.violation_score == 0.0: 
+                    self.violation_score = max(0.0, self.violation_score - 5.0)
+                if self.violation_score == 0.0:
                     self.durum = "SAFE"
 
             renk = (0, 255, 0) if "SAFE" in self.durum else ((0, 255, 255) if "UYARI" in self.durum else (0, 0, 255))
