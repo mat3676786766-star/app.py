@@ -154,7 +154,7 @@ else:
             st.line_chart(df)
     
     if os.path.exists("kopya_kanitlari/ihlal_kaniti.jpg"):
-        st.image("kopya_kanitlari/ihlal_kaniti.jpg", caption="Sistem Tarafından Yakalanan İhlal Kanıtı", use_container_width=True)
+        st.image("kopya_kanitlari/ihlal_kaniti.jpg", caption="Sistem Tarafından Yakalanan İhlal Kanıtı", width='stretch')
     else:
         st.success("Tebrikler, herhangi bir güvenlik ihlali olmadan sınav tamamlandı.")
         
